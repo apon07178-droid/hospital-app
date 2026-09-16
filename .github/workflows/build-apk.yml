@@ -1,0 +1,54 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find and extract ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          echo "Found zip: $ZIP_FILE"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No zip file found!"
+            exit 1
+          fi
+          mkdir -p extracted
+          unzip -o "$ZIP_FILE" -d extracted
+
+      - name: Find project folder
+        id: find_project
+        run: |
+          PROJECT_DIR=$(find extracted -name "build.gradle" -o -name "build.gradle.kts" | head -n 1 | xargs dirname)
+          # go up until we find gradlew
+          while [ ! -f "$PROJECT_DIR/gradlew" ] && [ "$PROJECT_DIR" != "extracted" ]; do
+            PROJECT_DIR=$(dirname "$PROJECT_DIR")
+          done
+          echo "Project dir: $PROJECT_DIR"
+          echo "dir=$PROJECT_DIR" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x "${{ steps.find_project.outputs.dir }}/gradlew"
+
+      - name: Build APK
+        working-directory: ${{ steps.find_project.outputs.dir }}
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: ${{ steps.find_project.outputs.dir }}/app/build/outputs/apk/debug/*.apk
